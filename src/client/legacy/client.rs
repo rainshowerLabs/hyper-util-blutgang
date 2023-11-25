@@ -14,10 +14,11 @@ use std::time::Duration;
 use futures_util::future::{self, Either, FutureExt, TryFutureExt};
 use http::uri::Scheme;
 use hyper::header::{HeaderValue, HOST};
+use hyper::rt::Timer;
 use hyper::{body::Body, Method, Request, Response, Uri, Version};
 use tracing::{debug, trace, warn};
 
-#[cfg(feature = "tcp")]
+#[cfg(feature = "tokio")]
 use super::connect::HttpConnector;
 use super::connect::{Alpn, Connect, Connected, Connection};
 use super::pool::{self, Ver};
@@ -102,7 +103,7 @@ impl Client<(), ()> {
     /// # Example
     ///
     /// ```
-    /// # #[cfg(feature = "runtime")]
+    /// # #[cfg(feature = "tokio")]
     /// # fn run () {
     /// use std::time::Duration;
     /// use hyper::Client;
@@ -143,7 +144,7 @@ where
     /// # Example
     ///
     /// ```
-    /// # #[cfg(feature = "runtime")]
+    /// # #[cfg(feature = "tokio")]
     /// # fn run () {
     /// use hyper::{Client, Uri};
     ///
@@ -172,7 +173,7 @@ where
     /// # Example
     ///
     /// ```
-    /// # #[cfg(feature = "runtime")]
+    /// # #[cfg(feature = "tokio")]
     /// # fn run () {
     /// use hyper::{Method, Client, Request};
     /// use http_body_util::Full;
@@ -933,7 +934,7 @@ fn is_schema_secure(uri: &Uri) -> bool {
 /// # Example
 ///
 /// ```
-/// # #[cfg(feature = "runtime")]
+/// # #[cfg(feature = "tokio")]
 /// # fn run () {
 /// use std::time::Duration;
 /// use hyper::Client;
@@ -1284,8 +1285,8 @@ impl Builder {
     ///
     /// # Cargo Feature
     ///
-    /// Requires the `runtime` cargo feature to be enabled.
-    #[cfg(feature = "runtime")]
+    /// Requires the `tokio` cargo feature to be enabled.
+    #[cfg(feature = "tokio")]
     #[cfg(feature = "http2")]
     #[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
     pub fn http2_keep_alive_interval(
@@ -1305,8 +1306,8 @@ impl Builder {
     ///
     /// # Cargo Feature
     ///
-    /// Requires the `runtime` cargo feature to be enabled.
-    #[cfg(feature = "runtime")]
+    /// Requires the `tokio` cargo feature to be enabled.
+    #[cfg(feature = "tokio")]
     #[cfg(feature = "http2")]
     #[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
     pub fn http2_keep_alive_timeout(&mut self, timeout: Duration) -> &mut Self {
@@ -1325,8 +1326,8 @@ impl Builder {
     ///
     /// # Cargo Feature
     ///
-    /// Requires the `runtime` cargo feature to be enabled.
-    #[cfg(feature = "runtime")]
+    /// Requires the `tokio` cargo feature to be enabled.
+    #[cfg(feature = "tokio")]
     #[cfg(feature = "http2")]
     #[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
     pub fn http2_keep_alive_while_idle(&mut self, enabled: bool) -> &mut Self {
@@ -1346,6 +1347,22 @@ impl Builder {
     #[cfg_attr(docsrs, doc(cfg(feature = "http2")))]
     pub fn http2_max_concurrent_reset_streams(&mut self, max: usize) -> &mut Self {
         self.h2_builder.max_concurrent_reset_streams(max);
+        self
+    }
+
+    /// Provide a timer to be used for timeouts and intervals.
+    ///
+    /// See the documentation of [`h2::client::Builder::timer`] for more
+    /// details.
+    ///
+    /// [`h2::client::Builder::timer`]: https://docs.rs/h2/client/struct.Builder.html#method.timer
+    pub fn timer<M>(&mut self, timer: M) -> &mut Self
+    where
+        M: Timer + Send + Sync + 'static,
+    {
+        #[cfg(feature = "http2")]
+        self.h2_builder.timer(timer);
+        // TODO(https://github.com/hyperium/hyper/issues/3167) set for pool as well
         self
     }
 
@@ -1393,7 +1410,7 @@ impl Builder {
     }
 
     /// Builder a client with this configuration and the default `HttpConnector`.
-    #[cfg(feature = "tcp")]
+    #[cfg(feature = "tokio")]
     pub fn build_http<B>(&self) -> Client<HttpConnector, B>
     where
         B: Body + Send,
@@ -1413,15 +1430,16 @@ impl Builder {
         B: Body + Send,
         B::Data: Send,
     {
+        let exec = self.exec.clone();
         Client {
             config: self.client_config,
-            exec: self.exec.clone(),
+            exec: exec.clone(),
             #[cfg(feature = "http1")]
             h1_builder: self.h1_builder.clone(),
             #[cfg(feature = "http2")]
             h2_builder: self.h2_builder.clone(),
             connector,
-            pool: pool::Pool::new(self.pool_config, &self.exec),
+            pool: pool::Pool::new(self.pool_config, exec),
         }
     }
 }
