@@ -1,8 +1,5 @@
 //! HTTP client utilities
 
-//mod client;
-pub mod connect;
-#[cfg(any(feature = "http1", feature = "http2"))]
+/// Legacy implementations of `connect` module and `Client`
+#[cfg(feature = "client-legacy")]
 pub mod legacy;
-#[doc(hidden)]
-pub mod pool;
